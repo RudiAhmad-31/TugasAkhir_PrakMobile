@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:project_akhir/views/register.dart';
 import 'package:project_akhir/widgets/navbar.dart';
-import 'package:project_akhir/utils/encryption.dart'; // import hashPassword
+import 'package:local_auth/local_auth.dart';
+import 'package:project_akhir/utils/encryption.dart'; // untuk hashPassword
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -15,6 +16,29 @@ class _LoginPageState extends State<LoginPage> {
   final usernameC = TextEditingController();
   final passwordC = TextEditingController();
   bool isLoginSuccess = false;
+
+  // Local Auth instance
+  final LocalAuthentication auth = LocalAuthentication();
+  bool _canCheckBiometrics = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometrics();
+  }
+
+  Future<void> _checkBiometrics() async {
+    try {
+      bool canCheck = await auth.canCheckBiometrics;
+      setState(() {
+        _canCheckBiometrics = canCheck;
+      });
+    } catch (e) {
+      setState(() {
+        _canCheckBiometrics = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +60,7 @@ class _LoginPageState extends State<LoginPage> {
           _usernameField(),
           _passwordField(),
           _loginButton(context),
+          if (_canCheckBiometrics) _biometricButton(context),
           const Text(
             "Belum memiliki akun?",
             style: TextStyle(color: Colors.white),
@@ -129,18 +154,61 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Widget _biometricButton(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      width: MediaQuery.of(context).size.width,
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          try {
+            bool didAuthenticate = await auth.authenticate(
+              localizedReason: 'Gunakan biometrik untuk login',
+              options: const AuthenticationOptions(
+                biometricOnly: true,
+                stickyAuth: true,
+              ),
+            );
+            if (didAuthenticate) {
+              // Jika sukses, langsung masuk ke Navbar
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const Navbar(name: "BiometricUser"),
+                ),
+              );
+            }
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                backgroundColor: Colors.red,
+                content: Text(
+                  "Autentikasi biometrik gagal",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            );
+          }
+        },
+        icon: const Icon(Icons.fingerprint),
+        label: const Text("Login dengan Biometrik"),
+        style: ElevatedButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.blueAccent,
+        ),
+      ),
+    );
+  }
+
   void _login() {
     String text = "", username, password;
     username = usernameC.text.trim();
     password = passwordC.text.trim();
-
     var box = Hive.box('users');
     if (box.containsKey(username)) {
       final savedHash = box.get(username);
-      final inputHash = hashPassword(password);
+      final inputHash = hashPassword(password); // cek dengan hash
 
       if (savedHash == inputHash) {
-        // Login berhasil
         setState(() {
           text = "Login Berhasil!";
           isLoginSuccess = true;
@@ -150,20 +218,17 @@ class _LoginPageState extends State<LoginPage> {
           MaterialPageRoute(builder: (context) => Navbar(name: username)),
         );
       } else {
-        // Password salah
         setState(() {
           text = "Password salah!";
           isLoginSuccess = false;
         });
       }
     } else {
-      // Username tidak ditemukan
       setState(() {
         text = "Username tidak ditemukan!";
         isLoginSuccess = false;
       });
     }
-
     SnackBar snackBar = SnackBar(
       backgroundColor: (isLoginSuccess) ? Colors.green : Colors.red,
       content: Text(
